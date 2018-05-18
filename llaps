@@ -23,7 +23,7 @@ based from discussion http://samba.2283325.n4.nabble.com/retrieve-machine-passwo
 
 from datetime       import datetime, timedelta
 from time           import mktime
-from string         import ascii_letters, punctuation, digits
+from string         import ascii_lowercase, ascii_uppercase, punctuation, digits
 from unicodedata    import normalize
 from random         import choice
 from logging        import (basicConfig as log_config,
@@ -131,7 +131,7 @@ class lLAPS(object):
 
         # Generates a random password excluding specified characters and character sets
         characters = ''
-        characterSets = ['ascii_letters', 'punctuation', 'digits']
+        characterSets = ['ascii_lowercase', 'ascii_uppercase', 'punctuation', 'digits']
         excludeSets = self.__get_config_settings('ExcludeSets')
         if length == 0:
             length = self.__get_config_settings('PasswordLength')
@@ -139,8 +139,10 @@ class lLAPS(object):
         for charset in characterSets:
             #python - y u no case statement (there's probably a better and more pythonic way to do this)
             if charset not in excludeSets:
-                if charset == 'ascii_letters':
-                    characters += ascii_letters
+                if charset == 'ascii_uppercase':
+                    characters += ascii_uppercase
+                elif charset == 'ascii_lowercase':
+                    characters += ascii_lowercase
                 elif charset == 'punctuation':
                     characters += punctuation
                 elif charset == 'digits':
