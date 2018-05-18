@@ -1,0 +1,267 @@
+#!/usr/bin/python
+'''
+LAPS for linux devices
+
+Bart Reardon CSIRO - bart.reardon@csiro.au
+
+This python script will set a randomly generated password for
+root or other local account if the expiration date has passed
+in your Active Directory. Mimics behavior of LAPS
+(Local Administrator Password Solution) for Windows
+
+Active Directory Attributes Modified:
+  dsAttrTypeNative:ms-Mcs-AdmPwd - Where Password is stored
+  dsAttrTypeNative:ms-Mcs-AdmPwdself.expirationTime - Expiration Time
+
+config settings, epoch time converter and password gen from macOSLAPS-Legacy https://github.com/joshua-d-miller/macOSLAPS-Legacy
+Joshua D. Miller - josh@psu.edu - The Pennsylvania State University
+
+Samba machine password code provided by Andrew Bartlett https://samba.org/~abartlet/
+based from discussion http://samba.2283325.n4.nabble.com/retrieve-machine-password-in-current-Samba-td4723249.html
+
+'''
+
+from datetime       import datetime, timedelta
+from time           import mktime
+from string         import ascii_letters, punctuation, digits
+from unicodedata    import normalize
+from random         import choice
+from logging        import (basicConfig as log_config,
+                     error as log_error, info as log_info)
+from crypt          import crypt
+from subprocess     import Popen, PIPE, STDOUT, check_output, call, CalledProcessError
+from socket         import gethostname
+from os             import system, remove
+
+import sys
+import optparse
+import sys
+
+# Find right directory when running from source tree (for sambaPW method)
+sys.path.insert(0, "bin/python")
+import samba
+from samba import getopt as options
+from samba.credentials import Credentials
+
+class lLAPS(object):
+    
+    # defaults for preferences
+    # might be able to do something here with wbinfo to determine a default domain controller
+    # otherwise we update the defaults we want changed from main() after we create an instance of the class
+    defaultpreferences = {
+        'LocalAdminAccount' : 'root',
+        'PasswordLength'    : 12,
+        'DaysTillExpiration': 60,
+        'DomainController'  : '',
+        'RemovePassChars'   : '\'',
+        'ExcludeSets'       : []
+    }
+    now                 = datetime.now()
+    hostname            = gethostname()
+    expirationtime      = '126227988000000000' # default to 01/01/2001
+    distinguishedName   = ''
+
+    # Setup Logging
+    log_format = '%(asctime)s|%(levelname)s:%(message)s'
+    log_config(filename='/var/log/llaps.log',
+               level=10, format=log_format)
+
+    def sambaPW(self, args):
+        '''
+        This method extracts the machines AD account password from /var/lib/samba/private/secrets.tdb
+        in its raw format, which is then able to be used for authentication.
+        Samba machine password code provided by Andrew Bartlett https://samba.org/~abartlet/
+        based from discussion http://samba.2283325.n4.nabble.com/retrieve-machine-password-in-current-Samba-td4723249.html
+        '''
+        parser      = optparse.OptionParser('machineaccountpw')
+        sambaopts   = options.SambaOptions(parser)
+        parser.add_option_group(sambaopts)
+        parser.add_option_group(options.VersionOptions(parser))
+        opts, args  = parser.parse_args()
+
+        if len(args) != 0:
+            parser.print_usage()
+            sys.exit(1)
+
+        lp_ctx      = sambaopts.get_loadparm()
+        creds       = Credentials()
+
+        creds.guess(lp_ctx)
+        creds.set_machine_account(lp_ctx)
+
+        return creds.get_password()
+
+    def __get_config_settings(self, preference_key):
+        '''Function to retrieve configuration settings
+        '''
+        preference_value = self.defaultpreferences.get(preference_key)
+
+        if isinstance(preference_value, unicode):
+            preference_value = normalize(
+                'NFKD', preference_value).encode('ascii', 'ignore')
+
+        return preference_value
+
+
+    def __windows_epoch_time_converter(self, time_type, expires):
+        '''Convert from Epoch to Windows or from Windows
+        to Epoch - Thanks Rusty Myers for determining Windows vs.
+        Epoch Time @rustymyers
+        '''
+        if time_type == 'epoch':
+            # Convert Windows Time to Epoch Time
+            format_expiration_time = int(
+                self.expirationtime) / 10000000 - 11644473600
+            format_expiration_time = datetime.fromtimestamp(
+                format_expiration_time)
+            return format_expiration_time
+        elif time_type == 'windows':
+            # Convert the time back from Time Stamp to Epoch to Windows
+            # and add 30 days onto the time
+            new_expiration_time = (self.now + timedelta(days=expires))
+            formatted_new_expiration_time = new_expiration_time
+            new_expiration_time = new_expiration_time.timetuple()
+            new_expiration_time = mktime(new_expiration_time)
+            new_expiration_time = ((new_expiration_time + 11644473600) *
+                                    10000000)
+            return (new_expiration_time, formatted_new_expiration_time)
+
+
+    def make_random_password(self, length):
+        '''Generate a Random Password'''
+
+        # Generates a random password excluding specified characters and character sets
+        characters = ''
+        characterSets = ['ascii_letters', 'punctuation', 'digits']
+        excludeSets = self.__get_config_settings('ExcludeSets')
+        if length == 0:
+            length = self.__get_config_settings('PasswordLength')
+        
+        for charset in characterSets:
+            #python - y u no case statement (there's probably a better and more pythonic way to do this)
+            if charset not in excludeSets:
+                if charset == 'ascii_letters':
+                    characters += ascii_letters
+                elif charset == 'punctuation':
+                    characters += punctuation
+                elif charset == 'digits':
+                    characters += digits
+
+        
+        remove_pass_characters = self.__get_config_settings('RemovePassChars')
+        # Remove Characters if specified
+        if remove_pass_characters:
+            characters = characters.translate(None, remove_pass_characters)
+
+        password = []
+        for i in range(length):
+            password.insert(i, choice(characters))
+        return ''.join(password)
+
+    def password_check(self):
+        '''Perform a password check and change the local
+        admin password and write it to Active Directory if needed'''
+
+        local_admin         = self.__get_config_settings('LocalAdminAccount')
+        exp_days            = self.__get_config_settings('DaysTillExpiration')
+        pass_length         = self.__get_config_settings('PasswordLength')
+        domain_controller   = self.__get_config_settings('DomainController')
+        password            = self.make_random_password(pass_length)
+
+        # try to read password expiration time and machines distinguished name from AD
+        try:
+            out = check_output(['net', 'ads', 'search',
+                                '(&(objectcategory=computer)(name={0}))'.format(self.hostname),
+                                'ms-Mcs-AdmPwdExpirationTime', 'distinguishedName', '-P'],
+                                universal_newlines=True)
+            lines = out.split("\n")
+
+            for line in lines:
+                if 'ms-Mcs-AdmPwdExpirationTime' in line:
+                    data = line.split(": ")
+                    self.expirationtime = data[1]
+                
+                if 'distinguishedName' in line:
+                    data = line.split(": ")
+                    self.distinguishedName = data[1]
+        except:
+            log_error('No conection to AD. Exiting')
+            sys.exit()
+
+        # Determine if the password expired and then change it
+        formatted_expiration_time = self.__windows_epoch_time_converter('epoch', exp_days)
+
+        if formatted_expiration_time < self.now:
+            # Log that the password change is being started
+            log_info('Password change required.'
+                    ' Performing password change...')
+
+            # Convert Time to Windows Time to prepare
+            # for new expiration time to be written to AD
+            new_expires = dict()
+            new_expires[0], new_expires[1] = self.__windows_epoch_time_converter('windows', exp_days)
+            
+            # format an ldif file to pipe to ldapmodify through stdin
+            ldif=   ('dn: ' + self.distinguishedName + '\n'
+                    'changetype: modify\n'
+                    'replace: ms-Mcs-AdmPwd\n'
+                    'ms-Mcs-AdmPwd: ' + password + '\n'
+                    '-\n'
+                    'replace: ms-Mcs-AdmPwdExpirationTime\n'
+                    'ms-Mcs-AdmPwdExpirationTime: ' + str(int(new_expires[0])) + '\n'
+            )
+            
+            #print(ldif)
+
+            # Set new random password in Active Directory and new expiration time
+            try:
+                # create a kerberos ticket using the machines AD account and password from sambaPW
+                p = Popen(['kinit','{0}$'.format(self.hostname)], stdout=PIPE, stdin=PIPE, stderr=PIPE)
+                p.communicate(input=self.sambaPW(''))
+
+                # process ldif file with ldapmodify - capture the output and process any errors
+                p = Popen('/usr/bin/ldapmodify -Y GSSAPI -h {0} -v'.format(domain_controller),
+                            shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+                p.communicate(ldif)
+
+                #print(p.returncode)
+
+                if p.returncode != 0:
+                    log_error('ldapmodify exited with code {0}'.format(p.returncode),
+                            p.stderr)
+                    sys.exit()
+
+            except StandardError as e:
+                log_error('Could not update AD object - exiting',
+                        e)
+                sys.exit()
+            else:
+                log_info('Password change has been completed. '
+                    'New expiration date is {0}'.format(new_expires[1]))
+
+            # Change the password for the specified local account to the previously randomly generated one
+            try:
+                p = Popen('chpasswd', stdout=PIPE, stdin=PIPE, stderr=PIPE)
+                p.communicate(input='{0}:{1}'.format(local_admin,password))
+            except:
+                log_error('Could not change local password',
+                            'local and AD passwords may not be in sync')
+            else:
+                log_info('Password for {0} has been updated'.format(local_admin))
+
+        else:
+            # password hasn't expired yet so there's nothing to do
+            log_info('Checked - no action required')
+
+def main(args):
+    LAPS = lLAPS()
+    LAPS.defaultpreferences.update({
+        'DomainController' : 'insert.dc.here',
+        'ExcludeSets'      : ['punctuation']
+    })
+    LAPS.password_check()
+
+
+if __name__ == '__main__':
+    main(sys.argv)
+    
