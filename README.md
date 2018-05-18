@@ -25,12 +25,15 @@ All other code under CSIRO Open Source Software Licence Agreement (variation of 
 set default preferences you want directly or updating the instance (see example in main())
 
 Available settings are:
- * LocalAdminAccount    - Sets a local account to be the recipient of the password change - default is `root`
- * PasswordLength       - Password length - default is `12`
- * DaysTillExpiration   - How many days before the password needs to change - default is `60`
- * DomainController     - FQDN of your domain controller
- * RemovePassChars      - Characters to remove from generated passwords
- * ExcludeSets          - Exclude an entire set of characters
+
+|Setting|Description|default|
+|-------|-----------|-------|
+|LocalAdminAccount|Sets a local account to be the recipient of the password change|`root`|
+|PasswordLength|Password length|`12`|
+|DaysTillExpiration|How many days before the password needs to change|`60`|
+|DomainController|FQDN of your domain controller||
+|RemovePassChars|Characters to remove from generated passwords||
+|ExcludeSets|Exclude an entire set of characters||
 
 copy llaps to somwhere in yout $PATH (`/usr/local/bin` is a good place)
 
