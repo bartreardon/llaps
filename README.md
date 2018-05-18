@@ -7,9 +7,12 @@ root or other local account if the expiration date has passed
 in your Active Directory. Mimics behavior of LAPS
 (Local Administrator Password Solution) for Windows
 
-Active Directory Attributes Modified:
-  dsAttrTypeNative:ms-Mcs-AdmPwd - Where Password is stored
-  dsAttrTypeNative:ms-Mcs-AdmPwdExpirationTime - Expiration Time
+Modifies:
+
+|Active Directory Attribute|Descriptoion|
+|-------|-------|
+|ms-Mcs-AdmPwd | Where Password is stored |
+|ms-Mcs-AdmPwdExpirationTime | Expiration Time |
 
 Uses config settings, epoch time converter and password gen from macOSLAPS-Legacy https://github.com/joshua-d-miller/macOSLAPS-Legacy
 Joshua D. Miller - josh@psu.edu - The Pennsylvania State University
