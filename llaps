@@ -35,7 +35,6 @@ from os             import system, remove
 
 import sys
 import optparse
-import sys
 
 # Find right directory when running from source tree (for sambaPW method)
 sys.path.insert(0, "bin/python")
