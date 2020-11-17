@@ -259,7 +259,7 @@ def main(args):
  
    LAPS = lLAPS()
    LAPS.defaultpreferences.update({
-       'DomainController' : 'nxfsmo1-cdc.nexus.csiro.au',
+       'DomainController' : 'some.dc.org',
        'ExcludeSets'      : ['punctuation'],
        'PasswordLength'   : 8
    })
