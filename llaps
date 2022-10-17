@@ -218,7 +218,7 @@ class lLAPS(object):
  
            try:
                # process ldif file with ldapmodify - capture the output and process any errors
-               cmd = u'/usr/bin/ldapmodify -Y GSSAPI -h {0} -v'.format(domain_controller.decode('utf-8'))
+               cmd = u'/usr/bin/ldapmodify -Y GSSAPI -H ldap://{0} -v'.format(domain_controller.decode('utf-8'))
  
                log_info(cmd)
                p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE, encoding=None)
